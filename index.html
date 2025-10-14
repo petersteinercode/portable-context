@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Context Engineer</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @font-face {
+        font-family: "NB Akademie";
+        src: url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");
+        font-weight: 400;
+        font-style: normal;
+      }
+
+      @font-face {
+        font-family: "NB Akademie";
+        src: url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");
+        font-weight: 700;
+        font-style: normal;
+      }
+
+      @font-face {
+        font-family: "Koor";
+        src: url("https://fonts.googleapis.com/css2?family=Inter:wght@300&display=swap");
+        font-weight: 300;
+        font-style: normal;
+      }
+
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+      }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 3px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+      }
+
+      /* Force black checkboxes */
+      input[type="checkbox"] {
+        accent-color: #000000 !important;
+        -webkit-appearance: none;
+        appearance: none;
+        background-color: #f3f4f6;
+        border: 1px solid #d1d5db;
+        border-radius: 2px;
+        width: 16px;
+        height: 16px;
+        position: relative;
+        cursor: pointer;
+      }
+
+      input[type="checkbox"]:checked {
+        background-color: #000000 !important;
+        border-color: #000000 !important;
+      }
+
+      input[type="checkbox"]:checked::after {
+        content: "✓";
+        position: absolute;
+        top: -2px;
+        left: 2px;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      input[type="checkbox"]:indeterminate {
+        background-color: #000000 !important;
+        border-color: #000000 !important;
+      }
+
+      input[type="checkbox"]:indeterminate::after {
+        content: "−";
+        position: absolute;
+        top: -2px;
+        left: 3px;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body class="h-screen overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useRef } = React;
+
+      // Simple SVG icons
+      const ChevronDown = ({ size = 16 }) => (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6,9 12,15 18,9"></polyline>
+        </svg>
+      );
+
+      const ChevronRight = ({ size = 16 }) => (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="9,18 15,12 9,6"></polyline>
+        </svg>
+      );
+
+      const MoreVertical = ({ size = 16 }) => (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="12" cy="12" r="1"></circle>
+          <circle cx="12" cy="5" r="1"></circle>
+          <circle cx="12" cy="19" r="1"></circle>
+        </svg>
+      );
+
+      // TypeScript interfaces
+      const ContextStore = {
+        groups: [],
+      };
+
+      const Group = {
+        id: "",
+        name: "",
+        documents: [],
+        selected: false,
+        collapsed: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const Document = {
+        id: "",
+        name: "",
+        content: "",
+        selected: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // Utility functions
+      const generateId = () => Math.random().toString(36).substr(2, 9);
+
+      const estimateTokens = (text) => {
+        // Character count divided by 4, rounded up
+        return Math.ceil(text.length / 4);
+      };
+
+      const formatTokens = (tokens) => {
+        if (tokens < 100) return `${tokens}`;
+        return `${(tokens / 1000).toFixed(1)}k`;
+      };
+
+      // Storage functions
+      const STORAGE_KEY = "portable-context-store";
+
+      const saveToStorage = (data) => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (error) {
+          console.error("Failed to save to localStorage:", error);
+        }
+      };
+
+      const loadFromStorage = () => {
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            // Convert date strings back to Date objects and deselect all fragments
+            parsed.groups = parsed.groups.map((group) => ({
+              ...group,
+              createdAt: new Date(group.createdAt),
+              updatedAt: new Date(group.updatedAt),
+              selected: false, // Deselect all collections
+              documents: group.documents.map((doc) => ({
+                ...doc,
+                createdAt: new Date(doc.createdAt),
+                updatedAt: new Date(doc.updatedAt),
+                selected: false, // Deselect all fragments
+              })),
+            }));
+            return parsed;
+          }
+        } catch (error) {
+          console.error("Failed to load from localStorage:", error);
+        }
+        return { groups: [] };
+      };
+
+      // Custom hooks
+      const useDebounce = (value, delay) => {
+        const [debouncedValue, setDebouncedValue] = useState(value);
+
+        useEffect(() => {
+          const handler = setTimeout(() => {
+            setDebouncedValue(value);
+          }, delay);
+
+          return () => {
+            clearTimeout(handler);
+          };
+        }, [value, delay]);
+
+        return debouncedValue;
+      };
+
+      // Components
+      const Checkbox = ({
+        checked,
+        onChange,
+        className = "",
+        indeterminate = false,
+      }) => {
+        const checkboxRef = useRef(null);
+
+        useEffect(() => {
+          if (checkboxRef.current) {
+            checkboxRef.current.indeterminate = indeterminate;
+          }
+        }, [indeterminate]);
+
+        return (
+          <input
+            ref={checkboxRef}
+            type="checkbox"
+            checked={checked}
+            onChange={onChange}
+            className={`w-4 h-4 text-black bg-gray-100 border-gray-300 rounded focus:ring-black focus:ring-2 ${
+              indeterminate ? "text-gray-400" : ""
+            } ${className}`}
+          />
+        );
+      };
+
+      const Button = ({
+        children,
+        onClick,
+        className = "",
+        variant = "default",
+      }) => {
+        const baseClasses = "px-8 rounded-full font-bold transition-colors";
+        const variants = {
+          default: "bg-gray-200 hover:bg-gray-300 text-gray-800",
+          empty: "bg-[#d0d0d0] hover:bg-[#c0c0c0] text-black",
+          copy: "bg-[#ff8c00] hover:bg-[#e67e00] text-black",
+        };
+
+        return (
+          <button
+            onClick={onClick}
+            className={`${baseClasses} ${variants[variant]} ${className}`}
+            style={{
+              fontFamily: "NB Akademie, -apple-system, system-ui, sans-serif",
+              height: "36px",
+              fontSize: "16px",
+            }}
+          >
+            {children}
+          </button>
+        );
+      };
+
+      const DropdownMenu = ({ children, trigger, className = "" }) => {
+        const [isOpen, setIsOpen] = useState(false);
+        const dropdownRef = useRef(null);
+
+        useEffect(() => {
+          const handleClickOutside = (event) => {
+            if (
+              dropdownRef.current &&
+              !dropdownRef.current.contains(event.target)
+            ) {
+              setIsOpen(false);
+            }
+          };
+
+          document.addEventListener("mousedown", handleClickOutside);
+          return () =>
+            document.removeEventListener("mousedown", handleClickOutside);
+        }, []);
+
+        return (
+          <div className={`relative ${className}`} ref={dropdownRef}>
+            <div onClick={() => setIsOpen(!isOpen)}>{trigger}</div>
+            {isOpen && (
+              <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                {children}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const DropdownMenuItem = ({ children, onClick, className = "" }) => (
+        <button
+          onClick={() => {
+            onClick();
+          }}
+          className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 first:rounded-t-md last:rounded-b-md ${className}`}
+        >
+          {children}
+        </button>
+      );
+
+      const AlertDialog = ({
+        isOpen,
+        onClose,
+        onConfirm,
+        title,
+        description,
+        confirmText = "Delete",
+      }) => {
+        if (!isOpen) return null;
+
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                {title}
+              </h3>
+              <p className="text-gray-600 mb-6">{description}</p>
+              <div className="flex justify-end space-x-3">
+                <Button onClick={onClose} variant="default">
+                  Cancel
+                </Button>
+                <Button onClick={onConfirm} variant="salmon">
+                  {confirmText}
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const Header = ({ onEmptyContext, onExportImportClick }) => (
+        <div
+          className="flex items-center justify-between p-4 border-b border-black"
+          style={{ borderBottomWidth: "1px", backgroundColor: "#ece8e8" }}
+        >
+          <h1
+            className="text-[16px] font-bold text-black uppercase cursor-pointer hover:text-[#ff8c00] transition-colors"
+            style={{
+              fontFamily: "NB Akademie, -apple-system, system-ui, sans-serif",
+            }}
+            onClick={onExportImportClick}
+          >
+            CONTEXT ENGINEER
+          </h1>
+          <Button
+            onClick={onEmptyContext}
+            variant="empty"
+            className="font-normal bg-transparent border border-black text-black hover:bg-[#d6d3d3] hover:text-black"
+          >
+            RESET CONTEXT
+          </Button>
+        </div>
+      );
+
+      const DocumentTree = ({
+        groups,
+        onGroupToggle,
+        onGroupSelect,
+        onDocumentSelect,
+        onAddGroup,
+        onAddDocument,
+        onGroupRename,
+        onGroupDelete,
+        onDocumentRename,
+        onDocumentDelete,
+        onDocumentEdit,
+        selectedDocument,
+        getGroupSelectionState,
+        deleteConfirm,
+      }) => {
+        const [editingItem, setEditingItem] = useState(null);
+        const [editValue, setEditValue] = useState("");
+
+        const handleRename = (item, type) => {
+          setEditingItem({ id: item.id, type });
+          setEditValue(item.name);
+        };
+
+        const saveRename = () => {
+          if (editValue.trim()) {
+            if (editingItem.type === "group") {
+              onGroupRename(editingItem.id, editValue.trim());
+            } else {
+              onDocumentRename(editingItem.id, editValue.trim());
+            }
+          }
+          setEditingItem(null);
+          setEditValue("");
+        };
+
+        const cancelRename = () => {
+          setEditingItem(null);
+          setEditValue("");
+        };
+
+        const handleKeyPress = (e) => {
+          if (e.key === "Enter") {
+            saveRename();
+          } else if (e.key === "Escape") {
+            cancelRename();
+          }
+        };
+
+        return (
+          <div
+            className="p-4"
+            style={{
+              fontFamily: "NB Akademie, -apple-system, system-ui, sans-serif",
+              fontSize: "16px",
+            }}
+          >
+            <div className="space-y-2">
+              {groups.map((group) => (
+                <div key={group.id} className="group">
+                  <div
+                    className={`flex items-center space-x-2 rounded-[10px] ${"hover:bg-[#d6d3d3] hover:rounded-[10px]"}`}
+                    style={{
+                      padding: "5px",
+                      minHeight: "32px",
+                    }}
+                  >
+                    <button
+                      onClick={() => onGroupToggle(group.id)}
+                      className="p-1 hover:bg-gray-200 rounded"
+                    >
+                      {group.collapsed ? (
+                        <ChevronRight size={16} />
+                      ) : (
+                        <ChevronDown size={16} />
+                      )}
+                    </button>
+                    {editingItem?.id === group.id &&
+                    editingItem?.type === "group" ? (
+                      <input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={saveRename}
+                        onKeyDown={handleKeyPress}
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm font-bold"
+                        style={{
+                          fontFamily:
+                            "NB Akademie, -apple-system, system-ui, sans-serif",
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className="flex-1 text-sm font-bold cursor-pointer"
+                        style={{
+                          fontFamily:
+                            "NB Akademie, -apple-system, system-ui, sans-serif",
+                        }}
+                        onDoubleClick={() => handleRename(group, "group")}
+                      >
+                        {group.name}
+                      </span>
+                    )}
+                    <div className="flex items-center space-x-2 ml-auto">
+                      <DropdownMenu
+                        trigger={
+                          <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 rounded">
+                            <MoreVertical size={16} />
+                          </button>
+                        }
+                      >
+                        <DropdownMenuItem
+                          onClick={() => handleRename(group, "group")}
+                        >
+                          Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => onGroupDelete(group.id, "group")}
+                          className={
+                            deleteConfirm.itemId === group.id &&
+                            deleteConfirm.type === "group"
+                              ? "text-[#ff8c00]"
+                              : ""
+                          }
+                        >
+                          {deleteConfirm.itemId === group.id &&
+                          deleteConfirm.type === "group"
+                            ? "Confirm delete?"
+                            : "Delete"}
+                        </DropdownMenuItem>
+                      </DropdownMenu>
+                      <Checkbox
+                        checked={getGroupSelectionState(group).checked}
+                        indeterminate={
+                          getGroupSelectionState(group).indeterminate
+                        }
+                        onChange={(e) =>
+                          onGroupSelect(group.id, e.target.checked)
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {!group.collapsed && (
+                    <div className="ml-8 space-y-1">
+                      {group.documents.map((document) => (
+                        <div
+                          key={document.id}
+                          className={`flex items-center space-x-2 ${
+                            selectedDocument?.id === document.id
+                              ? "bg-[#ff8c00] rounded-[10px] my-1"
+                              : "hover:bg-[#d6d3d3] hover:rounded-[10px]"
+                          }`}
+                          style={{
+                            padding: "5px",
+                            minHeight: "32px",
+                          }}
+                        >
+                          {editingItem?.id === document.id &&
+                          editingItem?.type === "document" ? (
+                            <input
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={saveRename}
+                              onKeyDown={handleKeyPress}
+                              className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                              autoFocus
+                            />
+                          ) : (
+                            <button
+                              onClick={() => onDocumentEdit(document.id)}
+                              onDoubleClick={() =>
+                                handleRename(document, "document")
+                              }
+                              className="flex-1 text-left text-sm hover:underline cursor-pointer"
+                            >
+                              {document.name}
+                            </button>
+                          )}
+                          <div className="flex items-center space-x-2 ml-auto">
+                            <DropdownMenu
+                              trigger={
+                                <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 rounded">
+                                  <MoreVertical size={16} />
+                                </button>
+                              }
+                            >
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleRename(document, "document")
+                                }
+                              >
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  onDocumentDelete(document.id, "document")
+                                }
+                                className={
+                                  deleteConfirm.itemId === document.id &&
+                                  deleteConfirm.type === "document"
+                                    ? "text-[#ff8c00]"
+                                    : ""
+                                }
+                              >
+                                {deleteConfirm.itemId === document.id &&
+                                deleteConfirm.type === "document"
+                                  ? "Confirm delete?"
+                                  : "Delete"}
+                              </DropdownMenuItem>
+                            </DropdownMenu>
+                            <Checkbox
+                              checked={document.selected}
+                              onChange={(e) =>
+                                onDocumentSelect(document.id, e.target.checked)
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => onAddDocument(group.id)}
+                        className="flex items-center space-x-2 hover:text-gray-700 hover:bg-[#d6d3d3] hover:rounded-[10px] rounded text-sm w-full"
+                        style={{
+                          color: "#a7a7a7",
+                          padding: "5px",
+                          minHeight: "32px",
+                        }}
+                      >
+                        <span>Add fragment</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={onAddGroup}
+              className="flex items-center space-x-2 hover:text-gray-700 hover:bg-[#d6d3d3] hover:rounded-[10px] rounded text-sm w-full mt-4 font-bold"
+              style={{
+                color: "#a7a7a7",
+                padding: "5px",
+                minHeight: "32px",
+              }}
+            >
+              <span>Add collection</span>
+            </button>
+          </div>
+        );
+      };
+
+      const Editor = ({ document, onContentChange, onNameChange }) => {
+        const [content, setContent] = useState(document?.content || "");
+        const debouncedContent = useDebounce(content, 500);
+
+        useEffect(() => {
+          if (document) {
+            setContent(document.content || "");
+          }
+        }, [document?.id]);
+
+        useEffect(() => {
+          if (debouncedContent !== document?.content && document) {
+            onContentChange(document.id, debouncedContent);
+          }
+        }, [debouncedContent, document, onContentChange]);
+
+        const handleContentChange = (e) => {
+          setContent(e.target.value);
+        };
+
+        if (!document) {
+          return (
+            <div
+              className="h-full flex items-center justify-center"
+              style={{ backgroundColor: "#ece8e8", color: "#a7a7a7" }}
+            >
+              <div className="text-center">
+                <p className="text-lg">Select a fragment to edit</p>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className="h-full flex flex-col"
+            style={{ backgroundColor: "#ece8e8" }}
+          >
+            <div className="p-4 flex flex-col h-full">
+              <h2
+                className="text-sm font-normal text-black mb-4"
+                style={{
+                  fontFamily:
+                    "NB Akademie, -apple-system, system-ui, sans-serif",
+                }}
+              >
+                {document.name}
+              </h2>
+              <div className="flex-1">
+                <textarea
+                  value={content}
+                  onChange={handleContentChange}
+                  className="w-full h-full resize-none border-none outline-none leading-relaxed text-black"
+                  style={{
+                    fontFamily: "IBM Plex Mono, Courier New, monospace",
+                    fontSize: "14px",
+                    backgroundColor: "#ffffff",
+                    borderRadius: "10px",
+                    padding: "10px",
+                    margin: "5px",
+                    width: "calc(100% - 10px)",
+                    height: "calc(100% - 10px)",
+                  }}
+                  placeholder="Build your context here..."
+                />
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const Footer = ({ tokenCount, onCopyContext }) => (
+        <div
+          className="flex items-center justify-between p-4 border-t border-black"
+          style={{ backgroundColor: "#ece8e8", borderTopWidth: "1px" }}
+        >
+          <div
+            className="text-[14px] text-black"
+            style={{
+              fontFamily: "NB Akademie, -apple-system, system-ui, sans-serif",
+            }}
+          >
+            Tokens: {formatTokens(tokenCount)}
+          </div>
+          <Button onClick={onCopyContext} variant="copy">
+            COPY CONTEXT
+          </Button>
+        </div>
+      );
+
+      const CopyFeedbackOverlay = ({ feedback, onDismiss }) => {
+        if (!feedback.show) return null;
+
+        return (
+          <div
+            className="fixed inset-0 flex items-center justify-center z-50"
+            style={{
+              backgroundColor: feedback.isError
+                ? "rgba(255, 140, 0, 0.8)"
+                : "rgba(0, 0, 0, 0.5)",
+            }}
+            onClick={onDismiss}
+          >
+            <div
+              className="bg-white p-6 max-w-md mx-4 text-center"
+              style={{ borderRadius: "18px" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {feedback.isError ? (
+                <p
+                  className="text-lg font-medium"
+                  style={{
+                    fontFamily:
+                      "NB Akademie, -apple-system, system-ui, sans-serif",
+                    color: "#ff8c00",
+                  }}
+                >
+                  {feedback.message}
+                </p>
+              ) : (
+                <div>
+                  <p
+                    className="text-lg font-bold"
+                    style={{
+                      fontFamily:
+                        "NB Akademie, -apple-system, system-ui, sans-serif",
+                      color: "#000000",
+                    }}
+                  >
+                    Context copied
+                  </p>
+                  <p
+                    className="text-lg font-medium"
+                    style={{
+                      fontFamily:
+                        "NB Akademie, -apple-system, system-ui, sans-serif",
+                      color: "#000000",
+                    }}
+                  >
+                    {feedback.message.replace("Context copied, ", "")}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const ExportImportModal = ({ show, onClose, onExport, onImport }) => {
+        if (!show) return null;
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
+            onClick={onClose}
+          >
+            <div
+              className="bg-white p-8 max-w-md mx-4 text-center"
+              style={{ borderRadius: "18px" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="space-y-4">
+                <div className="relative group cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={onImport}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <button
+                    className="w-full px-8 py-3.5 bg-transparent border border-black text-black font-normal rounded-full group-hover:bg-[#d6d3d3] transition-colors flex items-center justify-center"
+                    style={{
+                      fontFamily:
+                        "NB Akademie, -apple-system, system-ui, sans-serif",
+                      fontSize: "16px",
+                      height: "36px",
+                    }}
+                  >
+                    IMPORT DATA
+                  </button>
+                </div>
+
+                <button
+                  onClick={onExport}
+                  className="w-full px-8 py-3.5 bg-[#ff8c00] text-black font-bold rounded-full hover:bg-[#e67e00] transition-colors flex items-center justify-center"
+                  style={{
+                    fontFamily:
+                      "NB Akademie, -apple-system, system-ui, sans-serif",
+                    fontSize: "16px",
+                    height: "36px",
+                  }}
+                >
+                  EXPORT DATA
+                </button>
+
+                <button
+                  onClick={onClose}
+                  className="text-black font-normal hover:opacity-70 transition-opacity cursor-pointer text-sm"
+                  style={{
+                    fontFamily:
+                      "NB Akademie, -apple-system, system-ui, sans-serif",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // Main App Component
+      const App = () => {
+        const [store, setStore] = useState(loadFromStorage());
+        const [selectedDocument, setSelectedDocument] = useState(null);
+        const [deleteConfirm, setDeleteConfirm] = useState({
+          itemId: null,
+          type: null,
+        });
+        const [copyFeedback, setCopyFeedback] = useState({
+          show: false,
+          message: "",
+          isError: false,
+        });
+        const [showExportImport, setShowExportImport] = useState(false);
+
+        // Save to storage whenever store changes
+        useEffect(() => {
+          const timeoutId = setTimeout(() => {
+            saveToStorage(store);
+          }, 500);
+          return () => clearTimeout(timeoutId);
+        }, [store]);
+
+        const updateStore = useCallback((updater) => {
+          setStore((prevStore) => {
+            const newStore =
+              typeof updater === "function" ? updater(prevStore) : updater;
+            return { ...newStore, groups: [...newStore.groups] };
+          });
+        }, []);
+
+        const addGroup = useCallback(() => {
+          const newGroup = {
+            id: generateId(),
+            name: "New collection",
+            documents: [],
+            selected: false,
+            collapsed: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          updateStore((prev) => ({
+            ...prev,
+            groups: [...prev.groups, newGroup],
+          }));
+        }, [updateStore]);
+
+        const addDocument = useCallback(
+          (groupId) => {
+            const newDocument = {
+              id: generateId(),
+              name: "New fragment",
+              content: "",
+              selected: false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) =>
+                group.id === groupId
+                  ? { ...group, documents: [...group.documents, newDocument] }
+                  : group
+              ),
+            }));
+          },
+          [updateStore]
+        );
+
+        const toggleGroup = useCallback(
+          (groupId) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) =>
+                group.id === groupId
+                  ? { ...group, collapsed: !group.collapsed }
+                  : group
+              ),
+            }));
+          },
+          [updateStore]
+        );
+
+        const selectGroup = useCallback(
+          (groupId, selected) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) =>
+                group.id === groupId
+                  ? {
+                      ...group,
+                      selected,
+                      documents: group.documents.map((doc) => ({
+                        ...doc,
+                        selected,
+                      })),
+                    }
+                  : group
+              ),
+            }));
+          },
+          [updateStore]
+        );
+
+        const getGroupSelectionState = useCallback((group) => {
+          const selectedDocs = group.documents.filter((doc) => doc.selected);
+          if (selectedDocs.length === 0)
+            return { checked: false, indeterminate: false };
+          if (selectedDocs.length === group.documents.length)
+            return { checked: true, indeterminate: false };
+          return { checked: true, indeterminate: true };
+        }, []);
+
+        const selectDocument = useCallback(
+          (documentId, selected) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) => ({
+                ...group,
+                documents: group.documents.map((doc) =>
+                  doc.id === documentId ? { ...doc, selected } : doc
+                ),
+              })),
+            }));
+          },
+          [updateStore]
+        );
+
+        const renameGroup = useCallback(
+          (groupId, newName) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) =>
+                group.id === groupId
+                  ? { ...group, name: newName, updatedAt: new Date() }
+                  : group
+              ),
+            }));
+          },
+          [updateStore]
+        );
+
+        const renameDocument = useCallback(
+          (documentId, newName) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) => ({
+                ...group,
+                documents: group.documents.map((doc) =>
+                  doc.id === documentId
+                    ? { ...doc, name: newName, updatedAt: new Date() }
+                    : doc
+                ),
+              })),
+            }));
+
+            // Update selectedDocument if it's the one being renamed
+            if (selectedDocument && selectedDocument.id === documentId) {
+              setSelectedDocument((prev) => ({ ...prev, name: newName }));
+            }
+          },
+          [updateStore, selectedDocument]
+        );
+
+        const deleteGroup = useCallback(
+          (groupId) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.filter((group) => group.id !== groupId),
+            }));
+          },
+          [updateStore]
+        );
+
+        const deleteDocument = useCallback(
+          (documentId) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) => ({
+                ...group,
+                documents: group.documents.filter(
+                  (doc) => doc.id !== documentId
+                ),
+              })),
+            }));
+          },
+          [updateStore]
+        );
+
+        const editDocument = useCallback(
+          (documentId) => {
+            const document = store.groups
+              .flatMap((group) => group.documents)
+              .find((doc) => doc.id === documentId);
+            setSelectedDocument(document);
+          },
+          [store.groups]
+        );
+
+        const updateDocumentContent = useCallback(
+          (documentId, content) => {
+            updateStore((prev) => ({
+              ...prev,
+              groups: prev.groups.map((group) => ({
+                ...group,
+                documents: group.documents.map((doc) =>
+                  doc.id === documentId
+                    ? { ...doc, content, updatedAt: new Date() }
+                    : doc
+                ),
+              })),
+            }));
+          },
+          [updateStore]
+        );
+
+        const emptyContext = useCallback(() => {
+          updateStore((prev) => ({
+            ...prev,
+            groups: prev.groups.map((group) => ({
+              ...group,
+              selected: false,
+              documents: group.documents.map((doc) => ({
+                ...doc,
+                selected: false,
+              })),
+            })),
+          }));
+        }, [updateStore]);
+
+        const copyContext = useCallback(async () => {
+          const selectedDocuments = store.groups.flatMap((group) =>
+            group.documents
+              .filter((doc) => doc.selected)
+              .map((doc) => ({ ...doc, groupName: group.name }))
+          );
+
+          if (selectedDocuments.length === 0) {
+            setCopyFeedback({
+              show: true,
+              message: "No documents selected",
+              isError: true,
+            });
+            return;
+          }
+
+          const contextText = selectedDocuments
+            .map(
+              (doc) => `# ${doc.groupName}\n## ${doc.name}\n${doc.content}\n\n`
+            )
+            .join("");
+
+          try {
+            await navigator.clipboard.writeText(contextText);
+            const totalTokens = estimateTokens(contextText);
+            setCopyFeedback({
+              show: true,
+              message: `Context copied, total tokens: ${formatTokens(
+                totalTokens
+              )}`,
+              isError: false,
+            });
+          } catch (error) {
+            console.error("Failed to copy to clipboard:", error);
+            setCopyFeedback({
+              show: true,
+              message: "Failed to copy to clipboard",
+              isError: true,
+            });
+          }
+        }, [store.groups]);
+
+        const getTokenCount = useCallback(() => {
+          const selectedDocuments = store.groups.flatMap((group) =>
+            group.documents
+              .filter((doc) => doc.selected)
+              .map((doc) => ({ ...doc, groupName: group.name }))
+          );
+
+          const contextText = selectedDocuments
+            .map(
+              (doc) => `# ${doc.groupName}\n## ${doc.name}\n${doc.content}\n\n`
+            )
+            .join("");
+
+          return estimateTokens(contextText);
+        }, [store.groups]);
+
+        const tokenCount = getTokenCount();
+
+        const exportData = useCallback(() => {
+          const dataStr = JSON.stringify(store, null, 2);
+          const dataBlob = new Blob([dataStr], { type: "application/json" });
+          const url = URL.createObjectURL(dataBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `context-engineer-${
+            new Date().toISOString().split("T")[0]
+          }.json`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          setShowExportImport(false);
+        }, [store]);
+
+        const importData = useCallback(
+          (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const importedData = JSON.parse(e.target.result);
+                // Validate the imported data structure
+                if (importedData.groups && Array.isArray(importedData.groups)) {
+                  updateStore(importedData);
+                  setShowExportImport(false);
+                  // Reset file input
+                  event.target.value = "";
+                } else {
+                  alert(
+                    "Invalid file format. Please select a valid Context Engineer export file."
+                  );
+                }
+              } catch (error) {
+                alert("Error reading file. Please select a valid JSON file.");
+              }
+            };
+            reader.readAsText(file);
+          },
+          [updateStore]
+        );
+
+        const handleDeleteClick = useCallback(
+          (itemId, type) => {
+            if (
+              deleteConfirm.itemId === itemId &&
+              deleteConfirm.type === type
+            ) {
+              // Second click - confirm delete
+              if (type === "group") {
+                deleteGroup(itemId);
+              } else {
+                deleteDocument(itemId);
+              }
+              setDeleteConfirm({ itemId: null, type: null });
+            } else {
+              // First click - show confirmation
+              setDeleteConfirm({ itemId, type });
+            }
+          },
+          [deleteConfirm, deleteGroup, deleteDocument]
+        );
+
+        return (
+          <div className="h-screen flex flex-col">
+            <Header
+              onEmptyContext={emptyContext}
+              onExportImportClick={() => setShowExportImport(true)}
+            />
+
+            <div className="flex-1 flex overflow-hidden">
+              <div
+                className="w-1/2 border-r border-black flex flex-col"
+                style={{ borderRightWidth: "1px", backgroundColor: "#ece8e8" }}
+              >
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                  <DocumentTree
+                    groups={store.groups}
+                    onGroupToggle={toggleGroup}
+                    onGroupSelect={selectGroup}
+                    onDocumentSelect={selectDocument}
+                    onAddGroup={addGroup}
+                    onAddDocument={addDocument}
+                    onGroupRename={renameGroup}
+                    onGroupDelete={handleDeleteClick}
+                    onDocumentRename={renameDocument}
+                    onDocumentDelete={handleDeleteClick}
+                    onDocumentEdit={editDocument}
+                    selectedDocument={selectedDocument}
+                    getGroupSelectionState={getGroupSelectionState}
+                    deleteConfirm={deleteConfirm}
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1" style={{ backgroundColor: "#ffffff" }}>
+                <Editor
+                  document={selectedDocument}
+                  onContentChange={updateDocumentContent}
+                />
+              </div>
+            </div>
+
+            <Footer tokenCount={tokenCount} onCopyContext={copyContext} />
+
+            <CopyFeedbackOverlay
+              feedback={copyFeedback}
+              onDismiss={() =>
+                setCopyFeedback({ show: false, message: "", isError: false })
+              }
+            />
+
+            <ExportImportModal
+              show={showExportImport}
+              onClose={() => setShowExportImport(false)}
+              onExport={exportData}
+              onImport={importData}
+            />
+          </div>
+        );
+      };
+
+      // Render the app
+      ReactDOM.render(<App />, document.getElementById("root"));
+    </script>
+  </body>
+</html>
