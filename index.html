@@ -649,18 +649,60 @@
         );
       };
 
-      const Editor = ({ document, onContentChange, onNameChange }) => {
+      const Editor = ({
+        document,
+        onContentChange,
+        onNameChange,
+        editorRef,
+      }) => {
         const [content, setContent] = useState(document?.content || "");
         const debouncedContent = useDebounce(content, 500);
+        const currentDocumentIdRef = useRef(document?.id);
+        const justSwitchedDocumentRef = useRef(false);
+
+        // Get current content function that can be called externally
+        const getCurrentContent = useCallback(() => {
+          return content;
+        }, [content]);
+
+        // Force save function that can be called externally
+        const forceSave = useCallback(() => {
+          if (currentDocumentIdRef.current && content !== document?.content) {
+            onContentChange(currentDocumentIdRef.current, content);
+          }
+        }, [content, document?.content, onContentChange]);
+
+        // Expose functions through ref
+        useEffect(() => {
+          if (editorRef) {
+            editorRef.current = { forceSave, getCurrentContent };
+          }
+        }, [editorRef, forceSave, getCurrentContent]);
 
         useEffect(() => {
           if (document) {
             setContent(document.content || "");
+            currentDocumentIdRef.current = document.id;
+            justSwitchedDocumentRef.current = true; // Mark that we just switched
+
+            // Reset the flag after a short delay to allow for immediate saves
+            setTimeout(() => {
+              justSwitchedDocumentRef.current = false;
+            }, 100);
           }
         }, [document?.id]);
 
         useEffect(() => {
-          if (debouncedContent !== document?.content && document) {
+          // Skip if we just switched documents
+          if (justSwitchedDocumentRef.current) {
+            return;
+          }
+
+          if (
+            debouncedContent !== document?.content &&
+            document &&
+            currentDocumentIdRef.current === document.id
+          ) {
             onContentChange(document.id, debouncedContent);
           }
         }, [debouncedContent, document, onContentChange]);
@@ -875,6 +917,7 @@
           isError: false,
         });
         const [showExportImport, setShowExportImport] = useState(false);
+        const editorRef = useRef(null);
 
         // Save to storage whenever store changes
         useEffect(() => {
@@ -1052,12 +1095,22 @@
 
         const editDocument = useCallback(
           (documentId) => {
+            // Capture current content BEFORE switching
+            if (editorRef.current?.getCurrentContent && selectedDocument?.id) {
+              const currentContent = editorRef.current.getCurrentContent();
+
+              if (currentContent !== selectedDocument.content) {
+                updateDocumentContent(selectedDocument.id, currentContent);
+              }
+            }
+
             const document = store.groups
               .flatMap((group) => group.documents)
               .find((doc) => doc.id === documentId);
+
             setSelectedDocument(document);
           },
-          [store.groups]
+          [store.groups, selectedDocument, updateDocumentContent]
         );
 
         const updateDocumentContent = useCallback(
@@ -1253,6 +1306,7 @@
                 <Editor
                   document={selectedDocument}
                   onContentChange={updateDocumentContent}
+                  editorRef={editorRef}
                 />
               </div>
             </div>
