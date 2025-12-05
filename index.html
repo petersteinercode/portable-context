@@ -189,22 +189,36 @@
         return `${(tokens / 1000).toFixed(1)}k`;
       };
 
-      // Storage functions
-      const STORAGE_KEY = "portable-context-store";
-
-      const saveToStorage = (data) => {
+      // Storage functions - using Vercel Blob Storage
+      const saveToStorage = async (data) => {
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+          const response = await fetch('/api/store', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to save to blob storage');
+          }
         } catch (error) {
-          console.error("Failed to save to localStorage:", error);
+          console.error("Failed to save to blob storage:", error);
+          // Fallback to localStorage if API fails
+          try {
+            localStorage.setItem("portable-context-store", JSON.stringify(data));
+          } catch (localError) {
+            console.error("Failed to save to localStorage fallback:", localError);
+          }
         }
       };
 
-      const loadFromStorage = () => {
+      const loadFromStorage = async () => {
         try {
-          const stored = localStorage.getItem(STORAGE_KEY);
-          if (stored) {
-            const parsed = JSON.parse(stored);
+          const response = await fetch('/api/store');
+          if (response.ok) {
+            const parsed = await response.json();
             // Convert date strings back to Date objects and deselect all fragments
             parsed.groups = parsed.groups.map((group) => ({
               ...group,
@@ -221,7 +235,29 @@
             return parsed;
           }
         } catch (error) {
-          console.error("Failed to load from localStorage:", error);
+          console.error("Failed to load from blob storage:", error);
+          // Fallback to localStorage if API fails
+          try {
+            const stored = localStorage.getItem("portable-context-store");
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              parsed.groups = parsed.groups.map((group) => ({
+                ...group,
+                createdAt: new Date(group.createdAt),
+                updatedAt: new Date(group.updatedAt),
+                selected: false,
+                documents: group.documents.map((doc) => ({
+                  ...doc,
+                  createdAt: new Date(doc.createdAt),
+                  updatedAt: new Date(doc.updatedAt),
+                  selected: false,
+                })),
+              }));
+              return parsed;
+            }
+          } catch (localError) {
+            console.error("Failed to load from localStorage fallback:", localError);
+          }
         }
         return { groups: [] };
       };
@@ -863,7 +899,8 @@
 
       // Main App Component
       const App = () => {
-        const [store, setStore] = useState(loadFromStorage());
+        const [store, setStore] = useState({ groups: [] });
+        const [isLoading, setIsLoading] = useState(true);
         const [selectedDocument, setSelectedDocument] = useState(null);
         const [deleteConfirm, setDeleteConfirm] = useState({
           itemId: null,
@@ -876,13 +913,25 @@
         });
         const [showExportImport, setShowExportImport] = useState(false);
 
+        // Load from storage on mount
+        useEffect(() => {
+          const loadData = async () => {
+            const data = await loadFromStorage();
+            setStore(data);
+            setIsLoading(false);
+          };
+          loadData();
+        }, []);
+
         // Save to storage whenever store changes
         useEffect(() => {
-          const timeoutId = setTimeout(() => {
-            saveToStorage(store);
-          }, 500);
-          return () => clearTimeout(timeoutId);
-        }, [store]);
+          if (!isLoading) {
+            const timeoutId = setTimeout(() => {
+              saveToStorage(store);
+            }, 500);
+            return () => clearTimeout(timeoutId);
+          }
+        }, [store, isLoading]);
 
         const updateStore = useCallback((updater) => {
           setStore((prevStore) => {
@@ -1216,6 +1265,18 @@
           },
           [deleteConfirm, deleteGroup, deleteDocument]
         );
+
+        if (isLoading) {
+          return (
+            <div className="h-screen flex items-center justify-center" style={{ backgroundColor: "#ece8e8" }}>
+              <div className="text-center">
+                <p className="text-lg" style={{ fontFamily: "NB Akademie, -apple-system, system-ui, sans-serif" }}>
+                  Loading...
+                </p>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div className="h-screen flex flex-col">
